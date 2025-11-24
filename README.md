@@ -223,10 +223,10 @@ best_rf_model = grid_search.best_estimator_
 
 **Performance Comparison:**
 
-| **Model**  | **Accuracy Before** | **Accuracy After** | **Change** |
-|------------|---------------------|---------------------|------------|
-| **Random Forest** | 94% | 94% | **No change** |
-| **XGBoost** | 93% | 93% | **No change** |
+| **Model**  | **Accuracy Before** | **Accuracy After**  |
+|------------|---------------------|---------------------|
+| **Random Forest** | 94% | 94% |
+| **XGBoost** | 93% | 93% |
 
 **Key Insights:**
 - Random Forest achieved the highest accuracy (94%)
