@@ -1,22 +1,46 @@
-# Machine Learning Clustering and Classification Project Documentation
+# Clustering and Classification in Bank Transactions
 
 ## Table of Contents
 1. [Introduction](#introduction)
-2. [Clustering Analysis](#clustering-analysis)
+2. [Background](#background)
+3. [Business Questions](#business-questions)
+4. [Clustering Analysis](#clustering-analysis)
    - [Dataset Overview](#dataset-overview)
    - [Data Preprocessing](#data-preprocessing)
    - [Model Development](#model-development)
    - [Cluster Analysis](#cluster-analysis)
-3. [Classification Analysis](#classification-analysis)
+5. [Classification Analysis](#classification-analysis)
    - [Model Building](#model-building)
    - [Model Evaluation](#model-evaluation)
    - [Model Tuning](#model-tuning)
    - [Results Analysis](#results-analysis)
-4. [Conclusion](#conclusion)
+6. [Conclusion](#conclusion)
 
 ## Introduction
 
 This documentation outlines the process of unsupervised clustering followed by supervised classification on banking transaction data. The project demonstrates how to discover natural groupings in unlabeled data through clustering, then using those cluster assignments as labels for a classification model.
+
+## Background
+
+A bank processes millions of customer transactions every day, yet often treats every customer the same way. A customer with a large balance and steady, recurring transactions in one city needs a different approach than a customer with small, infrequent transactions elsewhere. Without clear segmentation, the marketing team pitches the same products to everyone, and the risk team struggles to flag the accounts that actually need closer attention.
+
+The transaction data itself carries no segment label. No column states that a customer is "premium" or "high-risk." Those segments have to be discovered first from raw transaction patterns, then used to train a model that can place a new customer into the right segment automatically.
+
+This project addresses that gap in two stages. Clustering finds customer groups from balance, transaction amount, transaction time, and location. Classification then learns from those groups, so the system can predict which segment a new customer belongs to without re-running clustering every time.
+
+## Business Questions
+
+**BQ1: Does the bank's transaction data actually contain meaningful customer groupings?**
+Before touching any model, the first question is whether the patterns in this data are distinct enough to form groups with real business meaning, rather than an arbitrary statistical split.
+
+**BQ2: What characteristics separate one customer group from another?**
+Once groups exist, the business needs to know what drives the difference: balance, transaction frequency, location, or some combination. This determines whether a group can turn into an actual product strategy or campaign.
+
+**BQ3: Can the system predict a new customer's segment without rerunning clustering from scratch?**
+Clustering needs the full historical dataset to run. For day-to-day use, the bank needs a model that predicts a customer's segment the moment a new customer signs up or a new transaction comes in.
+
+**BQ4: Which classification model is accurate enough to trust for business decisions?**
+A wrong segment prediction means a customer gets an irrelevant offer, or worse, misses risk monitoring they should have received. Comparing Random Forest and XGBoost here answers which model is the safer choice to rely on.
 
 ## Clustering Analysis
 
