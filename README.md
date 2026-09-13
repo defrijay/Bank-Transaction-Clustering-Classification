@@ -1,6 +1,6 @@
 # Bank Customer Segmentation: From Raw Transactions to Predictable Segments
 
-## Short Project Description
+![Cover](assets/cover.jpg)
 
 This project builds a **bank customer segmentation** from raw transaction data, then trains a classification model that can instantly predict which segment a new customer belongs to — without needing to re-run the clustering process every time a new customer signs up.
 
