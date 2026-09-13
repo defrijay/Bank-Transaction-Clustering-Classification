@@ -1,283 +1,111 @@
-# Clustering and Classification in Bank Transactions
+# Bank Customer Segmentation: From Raw Transactions to Predictable Segments
 
-## Table of Contents
-1. [Introduction](#introduction)
-2. [Background](#background)
-3. [Business Questions](#business-questions)
-4. [Clustering Analysis](#clustering-analysis)
-   - [Dataset Overview](#dataset-overview)
-   - [Data Preprocessing](#data-preprocessing)
-   - [Model Development](#model-development)
-   - [Cluster Analysis](#cluster-analysis)
-5. [Classification Analysis](#classification-analysis)
-   - [Model Building](#model-building)
-   - [Model Evaluation](#model-evaluation)
-   - [Model Tuning](#model-tuning)
-   - [Results Analysis](#results-analysis)
-6. [Conclusion](#conclusion)
+## Executive Summary
 
-## Introduction
+The bank's transaction data separates into three customer segments defined by balance and spending size. Random Forest predicts which segment a new customer belongs to with 99.1% accuracy on data the model never saw during training. A saved pipeline scores a new customer in milliseconds, no clustering re-run required.
 
-This documentation outlines the process of unsupervised clustering followed by supervised classification on banking transaction data. The project demonstrates how to discover natural groupings in unlabeled data through clustering, then using those cluster assignments as labels for a classification model.
+An earlier version of this analysis reported ten segments named after cities, with a silhouette score of 0.71. That result came from a bug: an unscaled location column with 1,595 distinct city values dominated every distance calculation in K-Means, so the model was grouping customers by an arbitrary alphabetical ID assigned to their city, not by their transaction behavior. Once every feature going into the clustering step is scaled the same way, three segments emerge, none of them tied to geography. The sections below walk through what changed, why, and what it means for marketing and risk.
 
 ## Background
 
-A bank processes millions of customer transactions every day, yet often treats every customer the same way. A customer with a large balance and steady, recurring transactions in one city needs a different approach than a customer with small, infrequent transactions elsewhere. Without clear segmentation, the marketing team pitches the same products to everyone, and the risk team struggles to flag the accounts that actually need closer attention.
+The bank processes millions of transactions daily and treats most customers the same way. A customer holding a large balance with steady, recurring transactions needs a different pitch than a customer making small, infrequent ones. Marketing sends the same offers to both. Risk struggles to know which accounts deserve a closer look.
 
-The transaction data itself carries no segment label. No column states that a customer is "premium" or "high-risk." Those segments have to be discovered first from raw transaction patterns, then used to train a model that can place a new customer into the right segment automatically.
+Raw transaction data carries no segment label. Nothing in the columns says "premium" or "high-risk." This project builds that label from scratch: cluster the historical transactions into groups, then train a classifier that can assign a new customer to a group the moment they sign up, without waiting to re-run the clustering.
 
-This project addresses that gap in two stages. Clustering finds customer groups from balance, transaction amount, transaction time, and location. Classification then learns from those groups, so the system can predict which segment a new customer belongs to without re-running clustering every time.
+## The Four Business Questions
 
-## Business Questions
+| # | Question | Short Answer |
+|---|----------|--------------|
+| BQ1 | Does the data contain real customer groupings? | Yes — silhouette score 0.37, a moderate but genuine structure |
+| BQ2 | What separates one group from another? | Account balance and transaction size. Not location, not gender |
+| BQ3 | Can we predict a new customer's segment without re-clustering? | Yes — a saved pipeline scores one customer in milliseconds |
+| BQ4 | Which model should the business trust? | Random Forest — 99.1% accuracy, checked once on held-out test data |
 
-**BQ1: Does the bank's transaction data actually contain meaningful customer groupings?**
-Before touching any model, the first question is whether the patterns in this data are distinct enough to form groups with real business meaning, rather than an arbitrary statistical split.
+Each answer is unpacked below.
 
-**BQ2: What characteristics separate one customer group from another?**
-Once groups exist, the business needs to know what drives the difference: balance, transaction frequency, location, or some combination. This determines whether a group can turn into an actual product strategy or campaign.
+---
 
-**BQ3: Can the system predict a new customer's segment without rerunning clustering from scratch?**
-Clustering needs the full historical dataset to run. For day-to-day use, the bank needs a model that predicts a customer's segment the moment a new customer signs up or a new transaction comes in.
+## BQ1: Does the Data Contain Meaningful Groupings?
 
-**BQ4: Which classification model is accurate enough to trust for business decisions?**
-A wrong segment prediction means a customer gets an irrelevant offer, or worse, misses risk monitoring they should have received. Comparing Random Forest and XGBoost here answers which model is the safer choice to rely on.
+**Yes, and here's the number that proves it.** Running K-Means across cluster counts from 2 to 10 and scoring each with the silhouette metric, the best split lands at **k = 3, silhouette = 0.3665**. A silhouette score above zero means clusters separate better than random assignment would; 0.37 sits in the range analysts typically call moderate, real structure, well short of the crisp 0.5+ that would suggest customers fall into obviously distinct camps.
 
-## Clustering Analysis
+That "moderate but real" framing matters because an earlier pass at this same dataset reported silhouette 0.71 and ten clean clusters. Digging into why revealed the cause: the clustering code label-encoded `CustLocation` (1,595 unique city strings) into raw integers from 0 to 1,594, then scaled only the three original numeric columns and left that integer column untouched. A single unscaled column with a range of 1,600 overwhelms three columns hovering between -3 and +3. K-Means was effectively sorting customers by the alphabetical rank of their city name. Every "segment" mapped cleanly to a dominant city because the model was clustering on city, full stop — the transaction behavior barely moved the needle.
 
-### Dataset Overview
+The fix: log-transform the two heavily skewed monetary columns (account balance ranges from near zero to 82 million, while the median sits at 17,000), scale every feature that enters K-Means on the same footing, and drop the 1,595-category location column from the clustering step entirely. What's left is honest: three segments built from behavior, not from an artifact of how a city name got encoded.
 
-For this analysis, we used a bank transactions dataset with the following characteristics:
-- **Source**: Banking transaction records
-- **Size**: We sampled 1.5% from the original dataset (which contained thousands of records)
-- **Features**: The dataset includes both numerical features (account balance, transaction amount, transaction time) and categorical features (customer gender, customer location)
+## BQ2: What Separates One Group From Another?
 
-```python
-# Loading the dataset
-df = pd.read_csv('bank_transactions.csv')
+**Balance and transaction size. Nothing else moves the needle.** The three segments, in the bank's own numbers:
 
-# Using 1.5% of dataset for analysis
-df_sampled = df.sample(frac=0.015, random_state=32)
+| Segment | Avg. Balance (INR) | Avg. Transaction (INR) | Customers | Share |
+|---|---:|---:|---:|---:|
+| High-Value – Big Spenders | 217,839 | 3,338 | 7,014 | 44.6% |
+| Mid-Tier – Light Spenders | 54,016 | 189 | 6,615 | 42.1% |
+| Growth – Moderate Spenders | 315 | 871 | 2,100 | 13.4% |
 
-print(f'Total data: {len(df)} records')
-print(f'Sample data used: {len(df_sampled)} records')
+Two things stand out. First, the *Growth* segment holds almost nothing in their accounts (an average of 315 rupees) yet spends more per transaction than the *Mid-Tier* segment (871 vs. 189 rupees). These look like customers running their balance close to zero between transactions rather than customers who simply have less money — a pattern risk teams may want to watch, and marketing may want to convert into savers rather than write off as low-value.
+
+Second, and this contradicts what the earlier version of this analysis claimed: **location does not separate these segments.** Checking the most common city within each cluster, the top city never accounts for more than 11.6% of any segment's customers, and the same city (Mumbai) tops all three. If geography drove the segmentation, each cluster would concentrate heavily in one region — it doesn't. Gender shows the same story: every segment skews male at roughly the same rate the overall dataset does, so it isn't a differentiator either.
+
+**What this means for the business:** campaigns and risk rules should key off balance and spending size, not the customer's city. A "premium banking in Gurgaon" campaign is targeting the wrong signal — a premium customer in Gurgaon looks financially identical to one in Chennai. The behavior is what's different, not the address.
+
+## BQ3: Can We Predict a Segment Without Re-Clustering?
+
+**Yes.** A saved pipeline — the fitted encoders, imputer, scaler, and the tuned Random Forest model — takes one new customer record and returns a segment in milliseconds. No historical dataset, no re-running K-Means.
+
+Two live examples from the pipeline:
+
+```
+New customer predicted segment: High-Value - Big Spenders (Cluster 2)
+New customer predicted segment: Growth - Moderate Spenders (Cluster 1)
 ```
 
-### Data Preprocessing
+The second example used a city that never appeared in the training data, and the pipeline still returned a segment instead of failing — unseen locations fall back to a neutral value rather than crashing the scoring function. That matters for a bank onboarding customers from towns that weren't in last year's transaction sample.
 
-The preprocessing phase involved several crucial steps to prepare the data for clustering:
+This is what turns a one-off analysis into something a loan-onboarding flow, mobile banking sign-up, or CRM lookup can call directly, the moment a new customer's first transaction comes in.
 
-1. **Feature Selection**: We selected key features for clustering analysis
-   ```python
-   selected_features = ['CustAccountBalance', 'TransactionAmount (INR)', 
-                       'TransactionTime', 'CustGender', 'CustLocation']
-   df_selected = df_sampled[selected_features].copy()
-   ```
+## BQ4: Which Model Should the Business Trust?
 
-2. **Handling Missing Values**:
-   ```python
-   # For numerical features
-   imputer_num = SimpleImputer(strategy='mean')
-   df_selected[numerical_features] = imputer_num.fit_transform(df_selected[numerical_features])
-   
-   # For categorical features
-   imputer_cat = SimpleImputer(strategy='most_frequent')
-   df_selected[categorical_features] = imputer_cat.fit_transform(df_selected[categorical_features])
-   ```
+**Random Forest, at 99.1% accuracy on data it never touched during training or tuning.**
 
-3. **Feature Standardization**: To ensure equal contribution of all features
-   ```python
-   scaler = StandardScaler()
-   df_selected[numerical_features] = scaler.fit_transform(df_selected[numerical_features])
-   ```
+Both models were compared on a held-out evaluation set first, kept separate from the final test set:
 
-4. **Categorical Encoding**: Converting categorical data to numerical format
-   ```python
-   label_encoders = {}
-   for col in categorical_features:
-       le = LabelEncoder()
-       df_selected[col] = le.fit_transform(df_selected[col])
-       label_encoders[col] = le
-   ```
+| Model | Eval Accuracy | Eval Macro F1 |
+|---|---:|---:|
+| Random Forest | 99.49% | 99.35% |
+| XGBoost | 99.28% | 99.15% |
 
-### Model Development
+Random Forest came out ahead on both metrics and went on to hyperparameter tuning (300 trees, no depth limit, minimum leaf size of 1). Its tuned score on eval barely moved (99.45% accuracy), which is a good sign — the model wasn't overfitting to a lucky split. The number that actually counts is the one checked exactly once, on the test set, after every modeling decision had already been made:
 
-We employed the K-Means clustering algorithm and determined the optimal number of clusters using both the Elbow Method and Silhouette Score:
+**Final Random Forest, test set, first and only look: 99.11% accuracy, 99.02% macro F1.**
 
-```python
-range_n_clusters = list(range(2, 11))
-silhouette_avg = []
-inertia = []
+Checking the test set only once matters more than it sounds. An earlier version of the classification notebook created a three-way train/eval/test split but only ever used two of the three — the eval set sat unused while the test set doubled as both the tuning ground and the final report card. That risks a subtly optimistic number: the "final" score creeps up because the model gets tuned toward it. Separating those two roles here means the 99.1% above wasn't shaped by the data it's being scored on.
 
-for n_clusters in range_n_clusters:
-    kmeans = KMeans(n_clusters=n_clusters, random_state=22, n_init=10)
-    cluster_labels = kmeans.fit_predict(df_selected)
-    inertia.append(kmeans.inertia_)
-    silhouette_avg.append(silhouette_score(df_selected, cluster_labels))
-```
+**Why accuracy is this high:** the segments were built directly from balance and transaction size, and the classifier has access to those same two numbers. It's a nearly linear problem once you see it that way — feature importance confirms it, with balance (58%) and transaction amount (39%) accounting for 98% of what drives every prediction, versus a negligible role for location (0.8%) and gender (0.1%). This is the honest version of a story the earlier notebook told for the wrong reason: back when location leaked into the clustering step, it also dominated the classifier's feature importance at 91%, because the model was just recovering the same bug rather than learning a real relationship.
 
-We applied feature selection to improve model performance:
+---
 
-```python
-# Feature Selection
-X = df_selected.drop(columns=['CustGender'])
-y = df_selected['CustGender']
-selector = SelectKBest(score_func=f_classif, k=3)
-X_selected = selector.fit_transform(X, y)
-selected_columns = X.columns[selector.get_support()]
-df_selected = df_selected[selected_columns]
-```
+## What Changed From the Previous Version, and Why It Matters
 
-### Cluster Analysis
+| Issue | Before | After | Why It Matters |
+|---|---|---|---|
+| Location encoding | Unscaled integer 0–1594, dwarfing every other feature | Excluded from clustering, kept only for profiling | Segments now reflect behavior, not an artifact of encoding order |
+| Monetary outliers | Raw values up to 82M scaled alongside a 17K median | Log-transformed before scaling | A handful of extreme balances no longer drag cluster centroids |
+| Silhouette score | 0.71 (inflated by the location bug) | 0.37 (honest, moderate structure) | Sets the right expectation: three real segments, not ten illusory ones |
+| Segment names | By dominant city (e.g. "High-Value – Gurgaon") | By balance and spend tier (e.g. "High-Value – Big Spenders") | Names now describe what actually differs between customers |
+| Eval/test split | Eval set created but never used; test set doubled as tuning ground | Eval set drives model selection and tuning; test set checked once | The reported 99.1% wasn't shaped by the data it's measured on |
+| Feature importance | Location: 91% (circular — location built the clusters, then "predicted" them) | Balance + transaction: 98% combined | The classifier is learning a real signal, not recovering a bug |
 
-After performing clustering, we analyzed the characteristics of each cluster:
+## Limitations and Next Steps
 
-**Cluster 0:**  
-- **Avg CustAccountBalance:** 135.86 billion (Min: 119.90K, Max: 13.41T)  
-- **Avg TransactionTime:** 7.95 billion  
-- **Avg TransactionAmount:** 14.59 million (Min: 1.68K, Max: 4.05B)  
-- **Dominant Demographics:** NEW DELHI, Male  
-- **Analysis:** Customers with large account balances and high transaction volumes, indicating strong financial stability and active transactional behavior.
+- **Sample size.** This analysis runs on a 1.5% sample (15,729 records) of the full transaction history. Directional findings should hold at full scale, but exact silhouette and accuracy numbers should be re-checked once the full dataset is available.
+- **Only three segments.** Three segments are easy to act on but coarse. If marketing needs finer targeting, consider clustering separately within the High-Value segment (e.g. by transaction frequency) rather than forcing K-Means toward a higher k that the data doesn't naturally support.
+- **The Growth segment deserves a second look.** Near-zero average balances combined with above-average transaction size is worth a manual review by the risk team before assuming this segment is simply "low value."
+- **Location isn't useless, just not a segment driver.** It may still be a useful feature for other models (fraud detection, branch staffing) — this analysis only concludes it doesn't separate spending behavior segments.
 
-**Cluster 1:**  
-- **Avg CustAccountBalance:** 90.62 billion (Min: 119.90K, Max: 8.49T)  
-- **Avg TransactionTime:** 8.03 billion  
-- **Avg TransactionAmount:** 12.30 million (Min: 6.41K, Max: 726.60M)  
-- **Dominant Demographics:** BANGALORE, Male  
-- **Analysis:** Upper-mid-tier customers with stable transaction patterns.
+## How the Two Notebooks Fit Together
 
-**Cluster 2:**  
-- **Avg CustAccountBalance:** 160.59 billion (Min: 119.90K, Max: 75.35T)  
-- **Avg TransactionTime:** 7.97 billion  
-- **Avg TransactionAmount:** 10.65 million (Min: 1.68K, Max: 871.91M)  
-- **Dominant Demographics:** GURGAON, Male  
-- **Analysis:** Highest average balance but smaller average transaction amounts; possibly selective high-value customers.
+1. **`Clustering_Perfected.ipynb`** reads the raw transactions, builds the three segments, and writes `clustered_data_fixed.csv` and `cluster_profile.csv`.
+2. **`Classification_Perfected.ipynb`** reads those two files, trains and compares Random Forest and XGBoost, and saves the deployable scoring pipeline (`segment_classifier.pkl` plus its preprocessing artifacts).
 
-**Clusters 3-9 follow similar analytical patterns, each with distinct characteristics based on geographic location and financial behavior.**
-
-## Classification Analysis
-
-Using the cluster assignments as target labels, we developed classification models to predict customer segments based on their transaction behavior.
-
-### Model Building
-
-For classification, we implemented both Random Forest and XGBoost models:
-
-1. **Data Preparation**:
-   ```python
-   # Split data into training, evaluation, and test sets
-   X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42)
-   X_eval, X_test, y_eval, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
-   
-   # Preprocess categorical features
-   encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
-   X_train[categorical_cols] = encoder.fit_transform(X_train[categorical_cols])
-   
-   # Handle missing values and standardize
-   imputer = SimpleImputer(strategy="median")
-   X_train = imputer.fit_transform(X_train)
-   scaler = StandardScaler()
-   X_train_scaled = scaler.fit_transform(X_train)
-   ```
-
-2. **Class Imbalance Handling**:
-   ```python
-   # Apply SMOTE to balance classes
-   smote = SMOTE(random_state=42)
-   X_train_resampled, y_train_resampled = smote.fit_resample(X_train_scaled, y_train)
-   
-   # Calculate class weights
-   class_weights = compute_class_weight("balanced", classes=np.unique(y_train_resampled), 
-                                      y=y_train_resampled)
-   class_weight_dict = {cls: weight for cls, weight in 
-                       zip(np.unique(y_train_resampled), class_weights)}
-   ```
-
-3. **Model Training**:
-   ```python
-   # Random Forest model
-   rf_model = RandomForestClassifier(n_estimators=200, random_state=42, 
-                                   class_weight=class_weight_dict)
-   rf_model.fit(X_train_resampled, y_train_resampled)
-   
-   # XGBoost model
-   xgb_model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', 
-                            random_state=42)
-   xgb_model.fit(X_train_resampled, y_train_resampled)
-   ```
-
-### Model Evaluation
-
-We evaluated both models using standard classification metrics:
-
-```python
-# Evaluate Random Forest
-y_pred_rf = rf_model.predict(X_test_scaled)
-print("Classification Report - Random Forest:")
-print(classification_report(y_test, y_pred_rf))
-
-# Evaluate XGBoost
-y_pred_xgb = xgb_model.predict(X_test_scaled)
-print("Classification Report - XGBoost:")
-print(classification_report(y_test, y_pred_xgb))
-```
-
-### Model Tuning
-
-We performed hyperparameter tuning using GridSearchCV:
-
-```python
-# Random Forest tuning
-param_grid = {
-    'n_estimators': [100, 200, 300],
-    'max_depth': [10, 20, 30, None],
-    'min_samples_split': [2, 5, 10],
-    'min_samples_leaf': [1, 2, 4]
-}
-
-grid_search = GridSearchCV(RandomForestClassifier(random_state=64, 
-                                               class_weight=class_weight_dict), 
-                         param_grid, cv=5, scoring='accuracy', n_jobs=-1, verbose=1)
-grid_search.fit(X_train_resampled, y_train_resampled)
-best_rf_model = grid_search.best_estimator_
-
-# Similar process for XGBoost
-```
-
-### Results Analysis
-
-**Performance Comparison:**
-
-| **Model**  | **Accuracy Before** | **Accuracy After**  |
-|------------|---------------------|---------------------|
-| **Random Forest** | 94% | 94% |
-| **XGBoost** | 93% | 93% |
-
-**Key Insights:**
-- Random Forest achieved the highest accuracy (94%)
-- Hyperparameter tuning did not significantly improve either model
-- Some classes showed low recall, particularly classes with fewer samples
-- SMOTE was effective but didn't completely resolve class imbalance issues
-
-**Recommendations for Further Improvement:**
-1. Explore a wider hyperparameter space:
-   ```python
-   param_grid = {
-       'n_estimators': [500, 700, 900],  
-       'max_depth': [50, 70, 90, None],  
-       'min_samples_split': [2, 5, 10, 15, 20],  
-       'min_samples_leaf': [1, 2, 4, 8],  
-       'max_features': ['sqrt', 'log2'],  
-       'bootstrap': [True, False]
-   }
-   ```
-2. Try alternative models like LightGBM or CatBoost
-3. Perform additional feature engineering to extract more information from the data
-
-## Conclusion
-
-This project successfully demonstrated:
-1. The application of K-Means clustering to identify natural customer segments in banking transaction data
-2. The development of classification models to predict these segments with high accuracy (94%)
-3. The effectiveness of feature selection, data preprocessing, and class imbalance handling techniques
-
-The optimal Random Forest model provides a robust framework for predicting customer segments, which can be valuable for targeted marketing campaigns, risk assessment, and service personalization in the banking sector.
+Run the clustering notebook first. The classification notebook depends on its output.
