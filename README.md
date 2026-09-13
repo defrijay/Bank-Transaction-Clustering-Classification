@@ -57,13 +57,13 @@ The problem is that raw transaction data carries no segment label. Nothing in th
 
 Searching k=2 through k=10 finds the best split at **k=3, silhouette score 0.3665**. A score above zero means the segments separate better than random assignment would; 0.37 falls into the "moderate but real structure" range — well short of the 0.5+ threshold that would usually signal customers falling into very sharply distinct groups.
 
-![Silhouette score comparison before and after the fix](assets_en/04_silhouette_comparison.png)
+![Silhouette score comparison before and after the fix](assets/04_silhouette_comparison.png)
 
 The earlier version reported a silhouette of 0.71 with 10 clusters — it looked far more convincing, but that number was a symptom of a bug, not a better result: the location column, label-encoded into integers from 0–1,594 without scaling, dominated every distance calculation, so the model was essentially just sorting customers by the alphabetical rank of their city name.
 
 ### 2. Segments are separated by balance and transaction size — not location, not gender
 
-![Size of each customer segment](assets_en/01_segment_size.png)
+![Size of each customer segment](assets/01_segment_size.png)
 
 | Segment | Avg. Balance (INR) | Avg. Transaction (INR) | Customers | Share |
 |---|---:|---:|---:|---:|
@@ -71,7 +71,7 @@ The earlier version reported a silhouette of 0.71 with 10 clusters — it looked
 | Mid-Tier – Light Spenders | 54,016 | 189 | 6,615 | 42.1% |
 | Growth – Moderate Spenders | 315 | 871 | 2,100 | 13.4% |
 
-![Balance and transaction characteristics per segment](assets_en/02_segment_characteristics.png)
+![Balance and transaction characteristics per segment](assets/02_segment_characteristics.png)
 
 Two things stand out from this table:
 
@@ -86,7 +86,7 @@ The saved pipeline — the fitted encoder, imputer, scaler, and trained Random F
 
 ### 4. Random Forest is the model worth trusting — and its feature importance makes sense
 
-![Random Forest vs. XGBoost comparison](assets_en/05_model_comparison.png)
+![Random Forest vs. XGBoost comparison](assets/05_model_comparison.png)
 
 Random Forest and XGBoost were first compared on the evaluation set (Random Forest came out slightly ahead on both metrics), then Random Forest was tuned and evaluated **once** on a fully separate test set:
 
@@ -94,7 +94,7 @@ Random Forest and XGBoost were first compared on the evaluation set (Random Fore
 
 The earlier version created a train/eval/test split but never actually used the eval set — the test set doubled as both the tuning ground and the final report card. That risks an optimistic final number, since the model effectively gets tuned toward the same data it's later scored on.
 
-![Feature importance before and after the fix](assets_en/03_feature_importance.png)
+![Feature importance before and after the fix](assets/03_feature_importance.png)
 
 Accuracy this high makes sense because the segments were built directly from balance and transaction size, and the classifier has access to those same two numbers. **Balance (58%) and transaction amount (39%) account for 98% of the model's total feature contribution**, while location and gender play almost no role (0.8% and 0.1%). This is the honest version of a story the earlier notebook told for the wrong reason: back then, location dominated feature importance at 91%, because the model was simply rediscovering the same bug — not learning a genuine relationship.
 
